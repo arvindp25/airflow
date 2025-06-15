@@ -18,10 +18,11 @@
 from __future__ import annotations
 
 from typing import Sequence
-from google.cloud.logging_v2 import ConfigServiceV2Client, LogSink, CreateSinkRequest, GetSinkRequest, ListSinksRequest, DeleteSinkRequest, UpdateSinkRequest
+from google.cloud.logging_v2.services.config_service_v2 import ConfigServiceV2Client
+from google.cloud.logging_v2.types  import LogSink, CreateSinkRequest, GetSinkRequest, ListSinksRequest, DeleteSinkRequest, UpdateSinkRequest
 
 from airflow.providers.google.common.hooks.base_google import PROVIDE_PROJECT_ID, GoogleBaseHook
-from airflow.exceptions import AirflowException
+from airflow.providers.google.common.consts import CLIENT_INFO
 
 class CloudLoggingHook(GoogleBaseHook):
     """
@@ -43,7 +44,7 @@ class CloudLoggingHook(GoogleBaseHook):
     def get_conn(self) -> ConfigServiceV2Client:
         """Returns the Google Cloud Logging Config client."""
         if not self._client:
-            self._client = ConfigServiceV2Client(credentials=self.get_credentials(), client_info=self.client_info)
+            self._client = ConfigServiceV2Client(credentials=self.get_credentials(), client_info=CLIENT_INFO)
         return self._client
 
     @GoogleBaseHook.fallback_to_default_project_id
@@ -58,7 +59,7 @@ class CloudLoggingHook(GoogleBaseHook):
 
     @GoogleBaseHook.fallback_to_default_project_id
     def get_sink(self, sink_name: str, project_id: str = PROVIDE_PROJECT_ID) -> LogSink:
-        request = GetSinkRequest(name=f"projects/{project_id}/sinks/{sink_name}")
+        request = GetSinkRequest(sink_name=f"projects/{project_id}/sinks/{sink_name}")
         return self.get_conn().get_sink(request=request)
 
     @GoogleBaseHook.fallback_to_default_project_id
@@ -68,7 +69,7 @@ class CloudLoggingHook(GoogleBaseHook):
 
     @GoogleBaseHook.fallback_to_default_project_id
     def delete_sink(self, sink_name: str, project_id: str = PROVIDE_PROJECT_ID) -> None:
-        request = DeleteSinkRequest(name=f"projects/{project_id}/sinks/{sink_name}")
+        request = DeleteSinkRequest(sink_name=f"projects/{project_id}/sinks/{sink_name}")
         self.get_conn().delete_sink(request=request)
 
     @GoogleBaseHook.fallback_to_default_project_id
@@ -76,5 +77,5 @@ class CloudLoggingHook(GoogleBaseHook):
         if isinstance(sink, dict):
             sink = LogSink(**sink)
         sink.name = f"projects/{project_id}/sinks/{sink_name}"
-        request = UpdateSinkRequest(sink=sink)
+        request = UpdateSinkRequest(sink_name = f"projects/{project_id}/sinks/{sink_name}",sink=sink)
         return self.get_conn().update_sink(request=request)

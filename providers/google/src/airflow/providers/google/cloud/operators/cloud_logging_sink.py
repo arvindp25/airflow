@@ -15,6 +15,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -166,7 +167,6 @@ class CloudLoggingCreateSinkOperator(GoogleCloudBaseOperator):
                 self.sink_name,
                 self.project_id,
             )
-            # Return existing sink
             sink_path = f"projects/{self.project_id}/sinks/{self.sink_name}"
             existing_sink = client.get_sink(request={"sink_name": sink_path})
             return logging_v2.types.LogSink.to_dict(existing_sink)
@@ -239,7 +239,6 @@ class CloudLoggingDeleteSinkOperator(GoogleCloudBaseOperator):
         sink_path = f"projects/{self.project_id}/sinks/{self.sink_name}"
         
         try:
-            # Get sink before deletion to return it
             sink_to_delete = client.get_sink(request={"sink_name": sink_path})
             
             self.log.info("Deleting log sink '%s' from project '%s'", self.sink_name, self.project_id)
