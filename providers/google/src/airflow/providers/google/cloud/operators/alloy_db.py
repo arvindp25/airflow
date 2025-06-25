@@ -341,7 +341,7 @@ class AlloyDBUpdateClusterOperator(AlloyDBWriteBaseOperator):
             "location_id": self.location,
             "cluster_id": self.cluster_id,
             "project_id": self.project_id,
-        }
+        } 
 
     def execute(self, context: Context) -> dict | None:
         AlloyDBClusterLink.persist(context=context)

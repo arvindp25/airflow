@@ -51,7 +51,7 @@ EXCLUSION_FILTER = [
 ]
 
 with DAG(
-    dag_id="example_google_cloud_logging_sink",
+    dag_id="google_cloud_logging_sink",
     description="Example DAG showing usage of all Cloud Logging Sink operators",
     schedule=None,
     start_date=datetime(2024, 1, 1),
