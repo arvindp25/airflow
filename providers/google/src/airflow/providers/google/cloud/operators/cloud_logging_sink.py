@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import google.cloud.exceptions
 from google.api_core.exceptions import AlreadyExists
-from google.cloud import logging_v2
+from google.cloud.logging_v2.types import LogSink 
 
 from airflow.exceptions import AirflowException
 from airflow.providers.google.cloud.hooks.cloud_logging import CloudLoggingHook
@@ -32,19 +32,19 @@ from airflow.providers.google.cloud.operators.cloud_base import GoogleCloudBaseO
 if TYPE_CHECKING:
     from airflow.utils.context import Context
 
-
-def _handle_excluison_filter(exclusion_filter):
-    exclusion_filter_config = []
-    if isinstance(exclusion_filter, dict):
-        exclusion_filter_config.append(logging_v2.types.LogExclusion(**exclusion_filter))
-    elif isinstance(exclusion_filter, list):
-        for f in exclusion_filter:
-            if isinstance(f, dict):
-                exclusion_filter_config.append(logging_v2.types.LogExclusion(**f))
-            else:
-                exclusion_filter_config.append(f)
-    return exclusion_filter_config
-
+def _validate_inputs(obj, required_fields: list[str]) -> None:
+    """Validate that all required fields are present on self."""
+    missing = [field for field in required_fields if not getattr(obj, field, None)]
+    if missing:
+        raise AirflowException(
+            f"Required parameters are missing: {missing}. These must be passed as keyword parameters "
+            "or as extra fields in the Airflow connection definition."
+        )
+def _get_field(obj, field_name):
+    """Supports both dict and protobuf-like objects."""
+    if isinstance(obj, dict):
+        return obj.get(field_name)
+    return getattr(obj, field_name, None)
 
 class CloudLoggingCreateSinkOperator(GoogleCloudBaseOperator):
     """
@@ -53,12 +53,20 @@ class CloudLoggingCreateSinkOperator(GoogleCloudBaseOperator):
     This operator creates a sink that exports log entries from Cloud Logging
     to destinations like Cloud Storage, BigQuery, or Pub/Sub.
 
-    :param project_id: Required. The ID of the Google Cloud project.
-    :param sink_config: Required. Full sink configuration dict as required by the API.
-        Refer: https://cloud.google.com/logging/docs/reference/v2/rest/v2/projects.sinks
+    :param project_id: Required. ID of the Google Cloud project where the sink will be created.
+    :param sink_config: Required. The full sink configuration as a dictionary or a LogSink object.
+        See: https://cloud.google.com/logging/docs/reference/v2/rest/v2/projects.sinks
     :param unique_writer_identity: If True, creates a unique service account for the sink.
-    :param gcp_conn_id: The connection ID used to connect to Google Cloud.
-    :param impersonation_chain: Optional service account to impersonate using short-term credentials.
+        If False, uses the default Google-managed service account.
+    :param gcp_conn_id: Optional. The connection ID used to connect to Google Cloud. Defaults to "google_cloud_default".
+    :param impersonation_chain: Optional service account to impersonate using short-term
+        credentials, or chained list of accounts required to get the access_token
+        of the last account in the list, which will be impersonated in the request.
+        If set as a string, the account must grant the originating account
+        the Service Account Token Creator IAM role.
+        If set as a sequence, the identities from the list must grant
+        Service Account Token Creator IAM role to the directly preceding identity, with first
+        account from the list granting this role to the originating account (templated).
     """
 
     template_fields: Sequence[str] = (
@@ -72,8 +80,8 @@ class CloudLoggingCreateSinkOperator(GoogleCloudBaseOperator):
     def __init__(
         self,
         project_id: str,
-        sink_config: dict,
-        unique_writer_identity: bool = True,
+        sink_config: dict | LogSink,
+        unique_writer_identity: bool = False,
         gcp_conn_id: str = "google_cloud_default",
         impersonation_chain: str | Sequence[str] | None = None,
         **kwargs,
@@ -85,30 +93,16 @@ class CloudLoggingCreateSinkOperator(GoogleCloudBaseOperator):
         self.gcp_conn_id = gcp_conn_id
         self.impersonation_chain = impersonation_chain
 
-    def _validate_inputs(self):
-        """Validate required inputs."""
-        if not self.project_id or not self.sink_config:
-            raise AirflowException("Both 'project_id' and 'sink_config' must be provided.")
-
-        if not isinstance(self.sink_config, dict):
-            raise AirflowException("`sink_config` must be a dictionary.")
-
-        if not self.sink_config.get("name") or not self.sink_config.get("destination"):
-            raise AirflowException("`sink_config` must include non-empty 'name' and 'destination'.")
-
-
     def execute(self, context: Context) -> dict[str, Any]:
         """Execute the operator."""
-        self._validate_inputs()
+        _validate_inputs(self, required_fields= ["project_id", "sink_config"])
         hook = CloudLoggingHook(gcp_conn_id=self.gcp_conn_id, impersonation_chain=self.impersonation_chain)
 
         try:
-            self.log.info("Creating log sink '%s' in project '%s'", self.sink_config["name"], self.project_id)
-            self.log.info("Destination: %s", self.sink_config["destination"])
-            if "filter" in self.sink_config:
-                self.log.info("Filter: %s", self.sink_config["filter"])
+            self.log.info("Creating log sink '%s' in project '%s'", _get_field(self.sink_config, "name"), self.project_id)
+            self.log.info("Destination: %s", _get_field(self.sink_config, "destination"))
 
-            response = hook.create_sink(sink =logging_v2.types.LogSink(**self.sink_config),unique_writer_identity=self.unique_writer_identity, project_id = self.project_id)
+            response = hook.create_sink(sink =self.sink_config, unique_writer_identity=self.unique_writer_identity, project_id = self.project_id)
 
             self.log.info("Log sink created successfully: %s", response.name)
 
@@ -116,16 +110,16 @@ class CloudLoggingCreateSinkOperator(GoogleCloudBaseOperator):
                 self.log.info("Writer identity: %s", response.writer_identity)
                 self.log.info("Remember to grant appropriate permissions to the writer identity")
 
-            return logging_v2.types.LogSink.to_dict(response)
+            return LogSink.to_dict(response)
 
         except AlreadyExists:
             self.log.info(
                 "Already existed log sink, sink_name=%s, project_id=%s",
-                self.sink_config["name"],
+                _get_field(self.sink_config,"name"),
                 self.project_id,
             )
-            existing_sink = hook.get_sink(sink_name= self.sink_config["name"], project_id = self.project_id)
-            return logging_v2.types.LogSink.to_dict(existing_sink)
+            existing_sink = hook.get_sink(sink_name= _get_field(self.sink_config,"name"), project_id = self.project_id)
+            return LogSink.to_dict(existing_sink)
 
         except google.cloud.exceptions.GoogleCloudError as e:
             self.log.error("An error occurred. Exiting.")
@@ -138,7 +132,8 @@ class CloudLoggingDeleteSinkOperator(GoogleCloudBaseOperator):
 
     :param sink_name: Required. Name of the sink to delete.
     :param project_id: Required. The ID of the Google Cloud project.
-    :param gcp_conn_id: The connection ID used to connect to Google Cloud.
+    :param gcp_conn_id: Optional. The connection ID to use for connecting to Google Cloud.
+        Defaults to "google_cloud_default".
     :param impersonation_chain: Optional service account to impersonate using short-term
         credentials, or chained list of accounts required to get the access_token
         of the last account in the list, which will be impersonated in the request.
@@ -165,26 +160,10 @@ class CloudLoggingDeleteSinkOperator(GoogleCloudBaseOperator):
         self.gcp_conn_id = gcp_conn_id
         self.impersonation_chain = impersonation_chain
 
-    def _validate_inputs(self):
-        """Validate required inputs."""
-        missing_fields = []
-        for field_name in ["sink_name", "project_id"]:
-            if not getattr(self, field_name):
-                missing_fields.append(field_name)
-
-        if missing_fields:
-            raise AirflowException(
-                f"Required parameters are missing: {missing_fields}. These parameters must be passed as "
-                "keyword parameters or as extra fields in Airflow connection definition."
-            )
-
     def execute(self, context: Context) -> dict[str, Any]:
         """Execute the operator."""
-        self._validate_inputs()
+        _validate_inputs(self, ["sink_name", "project_id"])
         hook = CloudLoggingHook(gcp_conn_id=self.gcp_conn_id, impersonation_chain=self.impersonation_chain)
-
-        # client = hook.get_conn()
-        # sink_path = f"projects/{self.project_id}/sinks/{self.sink_name}"
 
         try:
             sink_to_delete = hook.get_sink(sink_name =self.sink_name,project_id=self.project_id)
@@ -193,7 +172,7 @@ class CloudLoggingDeleteSinkOperator(GoogleCloudBaseOperator):
             hook.delete_sink(sink_name =self.sink_name,project_id=self.project_id)
             self.log.info("Log sink '%s' deleted successfully", self.sink_name)
 
-            return logging_v2.types.LogSink.to_dict(sink_to_delete)
+            return LogSink.to_dict(sink_to_delete)
 
         except google.cloud.exceptions.NotFound as e:
             self.log.error("An error occurred. Not Found.")
@@ -207,11 +186,18 @@ class CloudLoggingUpdateSinkOperator(GoogleCloudBaseOperator):
     """
     Updates an existing Cloud Logging export sink.
 
-    :param sink_name: Required. Name of the sink to update.
-    :param update_mask: Required.
-    :param project_id: Required. The ID of the Google Cloud project.
-    :param unique_writer_identity: Default True, updates the writer identity.
-    :param gcp_conn_id: The connection ID used to connect to Google Cloud.
+    :param project_id: Required. The ID of the Google Cloud project that contains the sink.
+    :param sink_name: Required. The name of the sink to update.
+    :param sink_config: Required. The updated sink configuration. Can be a dictionary or a
+        `google.cloud.logging_v2.types.LogSink` object. Refer to:
+        https://cloud.google.com/logging/docs/reference/v2/rest/v2/projects.sinks
+    :param update_mask: Required. A FieldMask or dictionary specifying which fields of the sink
+        should be updated. For example, to update the destination and filter, use:
+        `{"paths": ["destination", "filter"]}`.
+    :param unique_writer_identity: Optional. When set to True, a new unique service account
+        will be created for the sink. Defaults to False.
+    :param gcp_conn_id: Optional. The connection ID used to connect to Google Cloud.
+        Defaults to "google_cloud_default".
     :param impersonation_chain: Optional service account to impersonate using short-term
         credentials, or chained list of accounts required to get the access_token
         of the last account in the list, which will be impersonated in the request.
@@ -225,6 +211,9 @@ class CloudLoggingUpdateSinkOperator(GoogleCloudBaseOperator):
     template_fields: Sequence[str] = (
         "sink_name",
         "project_id",
+        "update_mask",
+        "sink_config",
+        "unique_writer_identity",
         "gcp_conn_id",
         "impersonation_chain",
     )
@@ -233,9 +222,9 @@ class CloudLoggingUpdateSinkOperator(GoogleCloudBaseOperator):
         self,
         project_id: str,        
         sink_name: str,
-        sink_config: dict,
-        update_mask:list,
-        unique_writer_identity: bool = True,
+        sink_config: dict | logging_v2.types.LogSink,
+        update_mask: FieldMask | dict | None = None,
+        unique_writer_identity: bool = False,
         gcp_conn_id: str = "google_cloud_default",
         impersonation_chain: str | Sequence[str] | None = None,
         **kwargs,
@@ -249,33 +238,25 @@ class CloudLoggingUpdateSinkOperator(GoogleCloudBaseOperator):
         self.gcp_conn_id = gcp_conn_id
         self.impersonation_chain = impersonation_chain
 
-    def _validate_inputs(self):
-        """Validate required inputs."""
-        missing_fields = []
-        for field_name in ["sink_name", "project_id", "update_mask", "sink_config"]:
-            if not getattr(self, field_name):
-                missing_fields.append(field_name)
-
-        if missing_fields:
-            raise AirflowException(
-                f"Required parameters are missing: {missing_fields}. These parameters must be passed as "
-                "keyword parameters or as extra fields in Airflow connection definition."
-            )
-
     def execute(self, context: Context) -> dict[str, Any]:
         """Execute the operator."""
-        self._validate_inputs()
+        _validate_inputs(self, ["sink_name", "project_id", "sink_config"])
         hook = CloudLoggingHook(gcp_conn_id=self.gcp_conn_id, impersonation_chain=self.impersonation_chain)
 
         try:
             current_sink = hook.get_sink(sink_name = self.sink_name, project_id = self.project_id)
 
             self.log.info("Updating log sink '%s' in project '%s'", self.sink_name, self.project_id)
-            self.log.info("Updating fields: %s", ", ".join(self.update_mask))
+            if isinstance(self.update_mask, dict) and "paths" in self.update_mask:
+                paths = self.update_mask["paths"]
+            elif hasattr(self.update_mask, "paths"):
+                paths = self.update_mask.paths
+            
+            self.log.info("Updating fields: %s", ", ".join(paths))
 
-            response = hook.update_sink(sink_name= self.sink_name,sink = logging_v2.types.LogSink(**self.sink_config),unique_writer_identity=self.unique_writer_identity, update_mask=self.update_mask)
+            response = hook.update_sink(sink_name= self.sink_name,sink =self.sink_config,unique_writer_identity=self.unique_writer_identity, update_mask=self.update_mask)
             self.log.info("Log sink updated successfully: %s", response.name)
-            return logging_v2.types.LogSink.to_dict(response)
+            return LogSink.to_dict(response)
 
         except google.cloud.exceptions.NotFound as e:
             self.log.error("An error occurred. Not Found.")
@@ -287,22 +268,22 @@ class CloudLoggingUpdateSinkOperator(GoogleCloudBaseOperator):
 
 class CloudLoggingListSinksOperator(GoogleCloudBaseOperator):
     """
-    Lists Cloud Logging export sinks in a GCP project.
+    Lists Cloud Logging export sinks in a Google Cloud project.
 
-    :param project_id: Required. The ID of the Google Cloud project.
-    :param page_size: Optional maximum number of sinks to return per page.
-    :param gcp_conn_id: The connection ID used to connect to Google Cloud.
-    :param impersonation_chain: Optional service account to impersonate using short-term
-        credentials, or chained list of accounts required to get the access_token
-        of the last account in the list, which will be impersonated in the request.
-        If set as a string, the account must grant the originating account
-        the Service Account Token Creator IAM role.
-        If set as a sequence, the identities from the list must grant
-        Service Account Token Creator IAM role to the directly preceding identity, with first
-        account from the list granting this role to the originating account (templated).
+    :param project_id: Required. The ID of the Google Cloud project to list sinks from.
+    :param page_size: Optional. The maximum number of sinks to return per page. Must be greater than 0.
+        If None, the server will use a default value.
+    :param gcp_conn_id: Optional. The connection ID used to connect to Google Cloud.
+        Defaults to "google_cloud_default".
+    :param impersonation_chain: Optional. Service account or chained list of accounts to impersonate.
+        If a string, the service account must grant the originating account the
+        'Service Account Token Creator' IAM role.
+
+        If a sequence, each account in the chain must grant this role to the next.
+        The first account must grant it to the originating account (templated).
     """
 
-    template_fields: Sequence[str] = ("project_id", "gcp_conn_id", "impersonation_chain")
+    template_fields: Sequence[str] = ("project_id", "gcp_conn_id", "impersonation_chain","page_size")
 
     def __init__(
         self,
@@ -317,36 +298,25 @@ class CloudLoggingListSinksOperator(GoogleCloudBaseOperator):
         self.page_size = page_size
         self.gcp_conn_id = gcp_conn_id
         self.impersonation_chain = impersonation_chain
-        self._validate_inputs()
-
-    def _validate_inputs(self):
-        """Validate required inputs."""
-        if not self.project_id:
-            raise AirflowException(
-                "Required parameter 'project_id' is missing. This parameter must be passed as "
-                "keyword parameter or as extra field in Airflow connection definition."
-            )
-
-        if self.page_size is not None and self.page_size < 0:
-            raise AirflowException(
-                "The page_size for the list sinks request should be greater or equal to zero"
-            )
 
     def execute(self, context: Context) -> list[dict[str, Any]]:
         """Execute the operator."""
-        self._validate_inputs()
+
+        _validate_inputs(self, ["project_id"])
+
+        if self.page_size is not None and self.page_size < 1:
+            raise AirflowException(
+                "The page_size for the list sinks request must be greater than zero"
+            )
+
         hook = CloudLoggingHook(gcp_conn_id=self.gcp_conn_id, impersonation_chain=self.impersonation_chain)
 
         try:
             self.log.info("Listing log sinks in project '%s'", self.project_id)
 
-            request = {"parent": parent}
-            if self.page_size:
-                request["page_size"] = str(self.page_size)
+            sinks = hook.list_sinks(project_id=self.project_id, page_size = self.page_size)
 
-            sinks = hook.list_sinks(project_id=self.project_id)
-
-            result = [logging_v2.types.LogSink.to_dict(sink) for sink in sinks]
+            result = [LogSink.to_dict(sink) for sink in sinks]
             self.log.info("Found %d log sinks", len(result))
 
             return result

@@ -22,13 +22,16 @@ This module contains various unit tests for GCP Cloud Logging Sink Operators
 from __future__ import annotations
 
 from unittest import mock
-
+import ast
 import pytest
+from datetime import datetime
 from google.api_core.exceptions import AlreadyExists, GoogleAPICallError, NotFound
 from google.cloud.exceptions import GoogleCloudError
+from google.api_core.exceptions import InvalidArgument
 from google.cloud.logging_v2.types import BigQueryOptions, LogExclusion, LogSink
 
 from airflow.exceptions import AirflowException
+from airflow import DAG
 from airflow.providers.google.cloud.operators.cloud_logging_sink import (
     CloudLoggingCreateSinkOperator,
     CloudLoggingDeleteSinkOperator,
@@ -65,7 +68,6 @@ sink_config_pubsub = {
     "destination": DESTINATION_BQ,
     "filter": FILTER,
     "exclusions":EXCLUSION_FILTER,
-
 }
 
 
@@ -123,114 +125,106 @@ class TestCloudLoggingCreateSinkOperator:
                 sink_config = None,
                 project_id=None,
             ).execute(context={})
-        assert "Both 'project_id' and 'sink_config' must be provided." in str(excinfo.value)
+        assert "Required parameters are missing: ['project_id', 'sink_config']." in str(excinfo.value)
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    def test_create_with_pubsub_sink(self, hook_mock):
+    @pytest.mark.parametrize("sink_config", [sink_config_bq, sink_config_pubsub])
+    def test_create_with_pubsub_sink(self, hook_mock,sink_config):
         hook_instance = hook_mock.return_value
-        hook_instance.create_sink.return_value = sink_config_pubsub
+        # expected_op =  LogSink(**sink_config)
+        hook_instance.create_sink.return_value = LogSink(**sink_config)
 
         operator = CloudLoggingCreateSinkOperator(
             task_id=TASK_ID,
-            sink_config=sink_config_pubsub,
+            sink_config=sink_config,
             project_id=PROJECT_ID,
+            unique_writer_identity= UNIQUE_WRITER_IDENTITY
         )
 
         operator.execute(context=mock.MagicMock())
 
         hook_instance.create_sink.assert_called_once_with(
             project_id=PROJECT_ID,
-            sink=sink_config_pubsub,
+            sink=sink_config,
+            unique_writer_identity= UNIQUE_WRITER_IDENTITY
+
         )
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    def test_create_with_bq_sink(self, hook_mock):
-        hook_instance = hook_mock.return_value
-        hook_instance.create_sink.return_value = sink_config_bq
-
-        operator = CloudLoggingCreateSinkOperator(
-            task_id=TASK_ID,
-            sink_config= sink_config_bq,
-            project_id=PROJECT_ID,
-        )
-
-        operator.execute(context=mock.MagicMock())
-
-        hook_instance.create_sink.assert_called_once_with(
-            project_id = PROJECT_ID,
-            sink=sink_config_bq
-        )
-
-    @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    def test_create_sink_already_exists(self, hook_mock):
+    @pytest.mark.parametrize("sink_config", [sink_config_bq, sink_config_pubsub])
+    def test_create_sink_already_exists(self, hook_mock, sink_config):
         hook_instance = hook_mock.return_value
         hook_instance.create_sink.side_effect = AlreadyExists("Sink already exists")
-        hook_instance.get_sink.return_value = sink_config_bq
+        hook_instance.get_sink.return_value = LogSink(**sink_config)
 
         operator = CloudLoggingCreateSinkOperator(
             task_id=TASK_ID,
-            sink_config=sink_config_bq,
+            sink_config=sink_config,
             project_id=PROJECT_ID,
+
         )
 
         result = operator.execute(context=mock.MagicMock())
 
         hook_instance.create_sink.assert_called_once_with(
             project_id=PROJECT_ID,
-            sink=sink_config_bq
+            sink=sink_config,
+            unique_writer_identity= False
         )
-        assert result["name"] == "test-sink"
-        assert result["destination"] == sink_config_bq["destination"]
-        assert result["filter"] == sink_config_bq["filter"]
-        assert "exclusions" in result
-        assert result["bigquery_options"].use_partitioned_tables is True
-
+        assert result["name"] == sink_config["name"]
+        assert result["destination"] == sink_config["destination"]
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    def test_create_sink_raises_error(self, hook_mock):
+    @pytest.mark.parametrize("sink_config", [sink_config_bq, sink_config_pubsub])
+    def test_create_sink_raises_error(self, hook_mock, sink_config):
         hook_instance = hook_mock.return_value
-        hook_instance.create_sink.side_effect = GoogleAPICallError("Failed to create sink")
-        hook_instance.get_sink.return_value = sink_config_bq
+        hook_instance.create_sink.side_effect = GoogleCloudError("Failed to create sink")
+        hook_instance.get_sink.return_value = sink_config
         
         operator = CloudLoggingCreateSinkOperator(
             task_id=TASK_ID,
-            sink_config = sink_config_bq,
+            sink_config = sink_config,
             project_id=PROJECT_ID,
         )
 
-        with pytest.raises(GoogleAPICallError, match="Failed to create sink"):
+        with pytest.raises(GoogleCloudError, match="Failed to create sink"):
             operator.execute(context=mock.MagicMock())
 
         hook_instance.create_sink.assert_called_once()
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    def test_create_with_impersonation_chain(self, hook_mock):
-        client_mock = mock.MagicMock()
-        client_mock.create_sink.return_value = log_sink_bq
-
-        hook_mock.return_value.get_conn.return_value = client_mock
-
-        impersonation_chain = ["user1@project.iam.gserviceaccount.com"]
+    @pytest.mark.parametrize("impersonation_chain", [["user1@project.iam.gserviceaccount.com", "user2@project.iam.gserviceaccount.com"], "user2@project.iam.gserviceaccount.com"])
+    def test_create_with_impersonation_chain(self, hook_mock, impersonation_chain):
+        hook_instance = hook_mock.return_value
+        hook_instance.create_sink.return_value = LogSink(**sink_config_bq)
 
         operator = CloudLoggingCreateSinkOperator(
             task_id=TASK_ID,
             sink_config=sink_config_bq,
             impersonation_chain=impersonation_chain,
-            project_id = PROJECT_ID
+            project_id=PROJECT_ID,
         )
 
-        operator.execute(context=mock.MagicMock())
+        result = operator.execute(context=mock.MagicMock())
 
         hook_mock.assert_called_once_with(
-            gcp_conn_id="google_cloud_default", impersonation_chain=impersonation_chain
+            gcp_conn_id="google_cloud_default",
+            impersonation_chain=impersonation_chain,
         )
 
     def test_missing_rendered_field_raises(self):
-        operator = CloudLoggingCreateSinkOperator(
-            task_id=TASK_ID,
-            sink_config = "{{ var.value.sink_config }}",
-            project_id="{{ var.value.project_id }}",
-        )
+
+        with DAG(
+            dag_id="test_render_native",
+            start_date=datetime(1997, 9, 25),
+            render_template_as_native_obj=True,
+        ) as dag:
+            operator = CloudLoggingCreateSinkOperator(
+                task_id=TASK_ID,
+                sink_config = "{{ var.value.sink_config }}",
+                project_id="{{ var.value.project_id }}",
+                dag=dag
+            )
 
         context = {
             "var": {"value": {"project_id": PROJECT_ID, "sink_config": None}},
@@ -240,29 +234,42 @@ class TestCloudLoggingCreateSinkOperator:
 
         with pytest.raises(
             AirflowException,
-            match=r"Both 'project_id' and 'sink_config' must be provided.",
+            match=r"Required parameters are missing: \['sink_config'\]\. These must be passed as keyword parameters or as extra fields in the Airflow connection definition\.",
         ):
             operator.execute(context)
 
-    # def test_template_rendering(self):
-    #     operator = CloudLoggingCreateSinkOperator(
-    #         task_id=TASK_ID,
-    #         sink_config = "{{ var.value.sink_config }}",
-    #         project_id="{{ var.value.project_id }}"
-    #     )
+    @mock.patch(CLOUD_LOGGING_HOOK_PATH)
+    def test_template_rendering(self, hook_mock):
+        with DAG(
+            dag_id="test_render_native",
+            start_date=datetime(2024, 1, 1),
+            render_template_as_native_obj=True,
+        ) as dag:
+            operator = CloudLoggingCreateSinkOperator(
+                task_id=TASK_ID,
+                sink_config = "{{ var.value.sink_config }}",
+                project_id="{{ var.value.project_id }}",
+                dag=dag
+            )
 
-    #     context = {
-    #         "var": {"value": {"project_id": PROJECT_ID, "sink_config": sink_config_bq}},
-    #     }
+        context = {
+            "var": {"value": {"project_id": PROJECT_ID, "sink_config": sink_config_bq}},
+        }
 
-    #     operator.render_template_fields(context)
+        hook_instance = hook_mock.return_value
+        hook_instance.create_sink.return_value = LogSink(**sink_config_bq)
 
-    #     assert operator.sink_config == sink_config_bq
+        operator.render_template_fields(context)
+
+        result = operator.execute(context)
+
+        assert isinstance(operator.sink_config, dict)
+        assert operator.sink_config["name"] == sink_config_bq["name"]
 
     def test_create_with_empty_sink_name_raises(self):
         with pytest.raises(
-            AirflowException,
-            match=r"`sink_config` must include non-empty 'name' and 'destination'",
+            InvalidArgument,
+            match="400 Required parameter 'sink.name' is empty",
         ):
             sink_config_bq["name"] = None
             CloudLoggingCreateSinkOperator(

@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from google.cloud.logging_v2.services.config_service_v2 import ConfigServiceV2Client
 from google.cloud.logging_v2.types import (
@@ -74,8 +75,8 @@ class CloudLoggingHook(GoogleBaseHook):
         return self.get_conn().get_sink(request=request)
 
     @GoogleBaseHook.fallback_to_default_project_id
-    def list_sinks(self, project_id: str = PROVIDE_PROJECT_ID) -> list[LogSink]:
-        request = ListSinksRequest(parent=self.get_parent(project_id))
+    def list_sinks(self,page_size: int| None = None,project_id: str = PROVIDE_PROJECT_ID) -> list[LogSink]:
+        request = ListSinksRequest(parent=self.get_parent(project_id), page_size= page_size)
         return list(self.get_conn().list_sinks(request=request))
 
     @GoogleBaseHook.fallback_to_default_project_id
@@ -85,13 +86,9 @@ class CloudLoggingHook(GoogleBaseHook):
 
     @GoogleBaseHook.fallback_to_default_project_id
     def update_sink(
-        self, sink_name: str, sink: LogSink | dict,update_mask: FieldMask | dict | None = None,, unique_writer_identity:bool, project_id: str = PROVIDE_PROJECT_ID
+        self, sink_name: str, sink: LogSink | dict, unique_writer_identity:bool, update_mask: FieldMask | dict | None = None, project_id: str = PROVIDE_PROJECT_ID
     ) -> LogSink:
         if isinstance(sink, dict):
             sink = LogSink(**sink)
-
-        # if isinstance(sink, list):
-        #     update_mask = {"paths":update_mask}
-        #     sink = LogSink(**sink)
         request = UpdateSinkRequest(sink_name=f"projects/{project_id}/sinks/{sink_name}", sink=sink,unique_writer_identity=unique_writer_identity, update_mask= update_mask)
         return self.get_conn().update_sink(request=request)
