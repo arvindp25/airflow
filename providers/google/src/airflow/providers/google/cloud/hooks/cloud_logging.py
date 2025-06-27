@@ -86,7 +86,7 @@ class CloudLoggingHook(GoogleBaseHook):
 
     @GoogleBaseHook.fallback_to_default_project_id
     def update_sink(
-        self, sink_name: str, sink: LogSink | dict, unique_writer_identity:bool, update_mask: FieldMask | dict | None = None, project_id: str = PROVIDE_PROJECT_ID
+        self, sink_name: str, sink: LogSink | dict, unique_writer_identity:bool, update_mask: FieldMask | dict, project_id: str = PROVIDE_PROJECT_ID
     ) -> LogSink:
         if isinstance(sink, dict):
             sink = LogSink(**sink)

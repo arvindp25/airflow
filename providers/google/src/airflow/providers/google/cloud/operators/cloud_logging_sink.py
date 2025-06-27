@@ -222,7 +222,7 @@ class CloudLoggingUpdateSinkOperator(GoogleCloudBaseOperator):
         project_id: str,        
         sink_name: str,
         sink_config: dict | logging_v2.types.LogSink,
-        update_mask: FieldMask | dict | None = None,
+        update_mask: FieldMask | dict,
         unique_writer_identity: bool = False,
         gcp_conn_id: str = "google_cloud_default",
         impersonation_chain: str | Sequence[str] | None = None,
@@ -239,21 +239,22 @@ class CloudLoggingUpdateSinkOperator(GoogleCloudBaseOperator):
 
     def execute(self, context: Context) -> dict[str, Any]:
         """Execute the operator."""
-        _validate_inputs(self, ["sink_name", "project_id", "sink_config"])
+        _validate_inputs(self, ["sink_name", "project_id", "sink_config", "update_mask"])
         hook = CloudLoggingHook(gcp_conn_id=self.gcp_conn_id, impersonation_chain=self.impersonation_chain)
 
         try:
             current_sink = hook.get_sink(sink_name = self.sink_name, project_id = self.project_id)
+            self.log.info("Current log sink configuration: '%s'.", LogSink.to_dict(current_sink))
 
             self.log.info("Updating log sink '%s' in project '%s'", self.sink_name, self.project_id)
             if isinstance(self.update_mask, dict) and "paths" in self.update_mask:
                 paths = self.update_mask["paths"]
             elif hasattr(self.update_mask, "paths"):
                 paths = self.update_mask.paths
-            
-            self.log.info("Updating fields: %s", ", ".join(paths))
+                
+                self.log.info("Updating fields: %s", ", ".join(paths))
 
-            response = hook.update_sink(sink_name= self.sink_name,sink =self.sink_config,unique_writer_identity=self.unique_writer_identity, update_mask=self.update_mask)
+            response = hook.update_sink(sink_name= self.sink_name,sink =self.sink_config,unique_writer_identity=self.unique_writer_identity,project_id = self.project_id, update_mask=self.update_mask)
             self.log.info("Log sink updated successfully: %s", response.name)
             return LogSink.to_dict(response)
 
