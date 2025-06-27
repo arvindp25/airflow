@@ -37,8 +37,7 @@ def _validate_inputs(obj, required_fields: list[str]) -> None:
     missing = [field for field in required_fields if not getattr(obj, field, None)]
     if missing:
         raise AirflowException(
-            f"Required parameters are missing: {missing}. These must be passed as keyword parameters "
-            "or as extra fields in the Airflow connection definition."
+            f"Required parameters are missing: {missing}. These must be passed as keyword parameters."
         )
 def _get_field(obj, field_name):
     """Supports both dict and protobuf-like objects."""

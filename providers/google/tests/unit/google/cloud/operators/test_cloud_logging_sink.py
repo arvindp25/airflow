@@ -25,6 +25,8 @@ from unittest import mock
 import ast
 import pytest
 from datetime import datetime
+import re
+
 from google.api_core.exceptions import AlreadyExists, GoogleAPICallError, NotFound
 from google.cloud.exceptions import GoogleCloudError
 from google.api_core.exceptions import InvalidArgument
@@ -234,7 +236,7 @@ class TestCloudLoggingCreateSinkOperator:
 
         with pytest.raises(
             AirflowException,
-            match=r"Required parameters are missing: \['sink_config'\]\. These must be passed as keyword parameters or as extra fields in the Airflow connection definition\.",
+            match= re.escape("Required parameters are missing: ['sink_config']. These must be passed as keyword parameters.")
         ):
             operator.execute(context)
 
@@ -297,13 +299,12 @@ class TestCloudLoggingDeleteSinkOperator:
         assert "Required parameters are missing" in str(excinfo.value)
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    def test_delete_sink_success(self, hook_mock):
-        client_mock = mock.MagicMock()
-        log_sink = LogSink(name=SINK_NAME, destination=DESTINATION_BQ)
-        client_mock.get_sink.return_value = log_sink
-        client_mock.delete_sink.return_value = None
-        hook_mock.return_value.get_conn.return_value = client_mock
-
+    @pytest.mark.parametrize("sink_config", [sink_config_bq, sink_config_pubsub])
+    def test_delete_sink_success(self, hook_mock, sink_config):
+        hook_instance = hook_mock.return_value
+        log_sink = LogSink(**sink_config)
+        hook_instance.get_sink.return_value = LogSink(**sink_config)
+        hook_instance.delete_sink.return_value = None
         operator = CloudLoggingDeleteSinkOperator(
             task_id=TASK_ID,
             sink_name=SINK_NAME,
@@ -313,59 +314,88 @@ class TestCloudLoggingDeleteSinkOperator:
         context = mock.MagicMock()
         result = operator.execute(context=context)
 
-        client_mock.get_sink.assert_called_once()
-        client_mock.delete_sink.assert_called_once()
+        hook_instance.get_sink.assert_called_once()
+        hook_instance.delete_sink.assert_called_once()
 
         assert result == LogSink.to_dict(log_sink)
 
+
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    def test_delete_sink_raises_error(self, hook_mock):
-        client_mock = mock.MagicMock()
-        client_mock.get_sink.side_effect = GoogleCloudError("Internal error")
-
-        hook_mock.return_value.get_conn.return_value = client_mock
-
+    @pytest.mark.parametrize("sink_config", [sink_config_bq, sink_config_pubsub])
+    def test_delete_sink_raises_error(self, hook_mock, sink_config):
+        hook_instance = hook_mock.return_value
+        hook_instance.delete_sink.side_effect = GoogleCloudError("Internal Error")
+        hook_instance.get_sink.return_value = LogSink(**sink_config)
+        
         operator = CloudLoggingDeleteSinkOperator(
             task_id=TASK_ID,
-            sink_name=SINK_NAME,
+            sink_name = SINK_NAME,
             project_id=PROJECT_ID,
         )
 
         with pytest.raises(GoogleCloudError):
             operator.execute(context=mock.MagicMock())
 
-        client_mock.get_sink.assert_called_once()
-        client_mock.delete_sink.assert_not_called()
+        hook_instance.get_sink.assert_called_once()
+        hook_instance.delete_sink.assert_called_once()
 
-    def test_missing_rendered_field_raises(self):
-        operator = CloudLoggingDeleteSinkOperator(
-            task_id=TASK_ID,
-            sink_name="{{ var.value.sink_name }}",
-            project_id="{{ var.value.project_id }}",
-        )
+    @mock.patch(CLOUD_LOGGING_HOOK_PATH)
+    def test_missing_rendered_field_raises(self, hook_mock):
+        with DAG(
+            dag_id="test_render_native",
+            start_date=datetime(2024, 1, 1),
+            render_template_as_native_obj=True,
+        ) as dag:
+            operator = CloudLoggingDeleteSinkOperator(
+                task_id=TASK_ID,
+                sink_name = "{{ var.value.sink_name }}",
+                project_id="{{ var.value.project_id }}",
+                dag=dag
+            )
+
         context = {
-            "var": {"value": {"sink_name": "", "project_id": PROJECT_ID}},
+            "var": {"value": {"project_id": PROJECT_ID, "sink_name": None}},
         }
-        operator.render_template_fields(context)
 
+        operator.render_template_fields(context)
         with pytest.raises(
             AirflowException,
-            match=r"Required parameters are missing: \['sink_name'\]\. These parameters must be passed as keyword parameters or as extra fields in Airflow connection definition\.",
+            match= re.escape("Required parameters are missing: ['sink_name']. These must be passed as keyword parameters.")
         ):
             operator.execute(context)
 
-    def test_template_rendering(self):
-        operator = CloudLoggingDeleteSinkOperator(
-            task_id=TASK_ID, sink_name="{{ var.value.sink_name }}", project_id="{{ var.value.project_id }}"
-        )
+
+    @mock.patch(CLOUD_LOGGING_HOOK_PATH)
+    @pytest.mark.parametrize("sink_config", [sink_config_bq, sink_config_pubsub])
+    def test_template_rendering(self, hook_mock, sink_config):
+        with DAG(
+            dag_id="test_render_native",
+            start_date=datetime(2024, 1, 1),
+            render_template_as_native_obj=True,
+        ) as dag:
+            operator = CloudLoggingDeleteSinkOperator(
+                task_id=TASK_ID,
+                sink_name = "{{ var.value.sink_name }}",
+                project_id="{{ var.value.project_id }}",
+                dag=dag
+            )
 
         context = {
-            "var": {"value": {"sink_name": SINK_NAME, "project_id": PROJECT_ID}},
+            "var": {"value": {"project_id": PROJECT_ID, "sink_name": SINK_NAME}},
         }
+
+        hook_instance = hook_mock.return_value
+        hook_instance.delete_sink.return_value = None
+        log_sink = LogSink(**sink_config)
+        hook_instance.get_sink.return_value = log_sink
+
         operator.render_template_fields(context)
+
+        result = operator.execute(context)
 
         assert operator.project_id == PROJECT_ID
         assert operator.sink_name == SINK_NAME
+        assert result == LogSink.to_dict(log_sink)
 
 
 class TestCloudLoggingListSinksOperator:
