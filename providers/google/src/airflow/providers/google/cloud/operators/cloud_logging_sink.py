@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import google.cloud.exceptions
 from google.api_core.exceptions import AlreadyExists
-from google.cloud.logging_v2.types import LogSink 
+from google.cloud.logging_v2.types import LogSink
 
 from airflow.exceptions import AirflowException
 from airflow.providers.google.cloud.hooks.cloud_logging import CloudLoggingHook
@@ -32,6 +32,7 @@ from airflow.providers.google.cloud.operators.cloud_base import GoogleCloudBaseO
 if TYPE_CHECKING:
     from airflow.utils.context import Context
 
+
 def _validate_inputs(obj, required_fields: list[str]) -> None:
     """Validate that all required fields are present on self."""
     missing = [field for field in required_fields if not getattr(obj, field, None)]
@@ -39,11 +40,14 @@ def _validate_inputs(obj, required_fields: list[str]) -> None:
         raise AirflowException(
             f"Required parameters are missing: {missing}. These must be passed as keyword parameters."
         )
+
+
 def _get_field(obj, field_name):
     """Supports both dict and protobuf-like objects."""
     if isinstance(obj, dict):
         return obj.get(field_name)
     return getattr(obj, field_name, None)
+
 
 class CloudLoggingCreateSinkOperator(GoogleCloudBaseOperator):
     """
@@ -73,7 +77,7 @@ class CloudLoggingCreateSinkOperator(GoogleCloudBaseOperator):
         "sink_config",
         "gcp_conn_id",
         "impersonation_chain",
-        "unique_writer_identity"
+        "unique_writer_identity",
     )
 
     def __init__(
@@ -94,14 +98,22 @@ class CloudLoggingCreateSinkOperator(GoogleCloudBaseOperator):
 
     def execute(self, context: Context) -> dict[str, Any]:
         """Execute the operator."""
-        _validate_inputs(self, required_fields= ["project_id", "sink_config"])
+        _validate_inputs(self, required_fields=["project_id", "sink_config"])
         hook = CloudLoggingHook(gcp_conn_id=self.gcp_conn_id, impersonation_chain=self.impersonation_chain)
 
         try:
-            self.log.info("Creating log sink '%s' in project '%s'", _get_field(self.sink_config, "name"), self.project_id)
+            self.log.info(
+                "Creating log sink '%s' in project '%s'",
+                _get_field(self.sink_config, "name"),
+                self.project_id,
+            )
             self.log.info("Destination: %s", _get_field(self.sink_config, "destination"))
 
-            response = hook.create_sink(sink =self.sink_config, unique_writer_identity=self.unique_writer_identity, project_id = self.project_id)
+            response = hook.create_sink(
+                sink=self.sink_config,
+                unique_writer_identity=self.unique_writer_identity,
+                project_id=self.project_id,
+            )
 
             self.log.info("Log sink created successfully: %s", response.name)
 
@@ -114,10 +126,12 @@ class CloudLoggingCreateSinkOperator(GoogleCloudBaseOperator):
         except AlreadyExists:
             self.log.info(
                 "Already existed log sink, sink_name=%s, project_id=%s",
-                _get_field(self.sink_config,"name"),
+                _get_field(self.sink_config, "name"),
                 self.project_id,
             )
-            existing_sink = hook.get_sink(sink_name= _get_field(self.sink_config,"name"), project_id = self.project_id)
+            existing_sink = hook.get_sink(
+                sink_name=_get_field(self.sink_config, "name"), project_id=self.project_id
+            )
             return LogSink.to_dict(existing_sink)
 
         except google.cloud.exceptions.GoogleCloudError as e:
@@ -165,10 +179,10 @@ class CloudLoggingDeleteSinkOperator(GoogleCloudBaseOperator):
         hook = CloudLoggingHook(gcp_conn_id=self.gcp_conn_id, impersonation_chain=self.impersonation_chain)
 
         try:
-            sink_to_delete = hook.get_sink(sink_name =self.sink_name,project_id=self.project_id)
+            sink_to_delete = hook.get_sink(sink_name=self.sink_name, project_id=self.project_id)
 
             self.log.info("Deleting log sink '%s' from project '%s'", self.sink_name, self.project_id)
-            hook.delete_sink(sink_name =self.sink_name,project_id=self.project_id)
+            hook.delete_sink(sink_name=self.sink_name, project_id=self.project_id)
             self.log.info("Log sink '%s' deleted successfully", self.sink_name)
 
             return LogSink.to_dict(sink_to_delete)
@@ -219,7 +233,7 @@ class CloudLoggingUpdateSinkOperator(GoogleCloudBaseOperator):
 
     def __init__(
         self,
-        project_id: str,        
+        project_id: str,
         sink_name: str,
         sink_config: dict | logging_v2.types.LogSink,
         update_mask: FieldMask | dict,
@@ -243,7 +257,7 @@ class CloudLoggingUpdateSinkOperator(GoogleCloudBaseOperator):
         hook = CloudLoggingHook(gcp_conn_id=self.gcp_conn_id, impersonation_chain=self.impersonation_chain)
 
         try:
-            current_sink = hook.get_sink(sink_name = self.sink_name, project_id = self.project_id)
+            current_sink = hook.get_sink(sink_name=self.sink_name, project_id=self.project_id)
             self.log.info("Current log sink configuration: '%s'.", LogSink.to_dict(current_sink))
 
             self.log.info("Updating log sink '%s' in project '%s'", self.sink_name, self.project_id)
@@ -251,10 +265,16 @@ class CloudLoggingUpdateSinkOperator(GoogleCloudBaseOperator):
                 paths = self.update_mask["paths"]
             elif hasattr(self.update_mask, "paths"):
                 paths = self.update_mask.paths
-                
+
                 self.log.info("Updating fields: %s", ", ".join(paths))
 
-            response = hook.update_sink(sink_name= self.sink_name,sink =self.sink_config,unique_writer_identity=self.unique_writer_identity,project_id = self.project_id, update_mask=self.update_mask)
+            response = hook.update_sink(
+                sink_name=self.sink_name,
+                sink=self.sink_config,
+                unique_writer_identity=self.unique_writer_identity,
+                project_id=self.project_id,
+                update_mask=self.update_mask,
+            )
             self.log.info("Log sink updated successfully: %s", response.name)
             return LogSink.to_dict(response)
 
@@ -283,7 +303,7 @@ class CloudLoggingListSinksOperator(GoogleCloudBaseOperator):
         The first account must grant it to the originating account (templated).
     """
 
-    template_fields: Sequence[str] = ("project_id", "gcp_conn_id", "impersonation_chain","page_size")
+    template_fields: Sequence[str] = ("project_id", "gcp_conn_id", "impersonation_chain", "page_size")
 
     def __init__(
         self,
@@ -301,20 +321,17 @@ class CloudLoggingListSinksOperator(GoogleCloudBaseOperator):
 
     def execute(self, context: Context) -> list[dict[str, Any]]:
         """Execute the operator."""
-
         _validate_inputs(self, ["project_id"])
 
         if self.page_size is not None and self.page_size < 1:
-            raise AirflowException(
-                "The page_size for the list sinks request must be greater than zero"
-            )
+            raise AirflowException("The page_size for the list sinks request must be greater than zero")
 
         hook = CloudLoggingHook(gcp_conn_id=self.gcp_conn_id, impersonation_chain=self.impersonation_chain)
 
         try:
             self.log.info("Listing log sinks in project '%s'", self.project_id)
 
-            sinks = hook.list_sinks(project_id=self.project_id, page_size = self.page_size)
+            sinks = hook.list_sinks(project_id=self.project_id, page_size=self.page_size)
 
             result = [LogSink.to_dict(sink) for sink in sinks]
             self.log.info("Found %d log sinks", len(result))

@@ -1,3 +1,20 @@
+ .. Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements.  See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership.  The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License.  You may obtain a copy of the License at
+
+ ..   http://www.apache.org/licenses/LICENSE-2.0
+
+ .. Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied.  See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
 Google Cloud Logging Sink Operators
 ===================================
 
@@ -23,7 +40,7 @@ You can create a Cloud Logging sink using a Python dictionary:
    :start-after: [START howto_operator_cloud_logging_create_sink_native_obj]
    :end-before: [END howto_operator_cloud_logging_create_sink_native_obj]
 
-**Required fields in `sink_config` (dict):**
+**Required fields in ``sink_config`` (dict):**
 
 - ``name``: The name of the sink.
 - ``destination``: The export destination (e.g., ``storage.googleapis.com/...``, ``bigquery.googleapis.com/...``).
@@ -43,7 +60,7 @@ To update an existing sink's configuration (description, filter, exclusions, etc
    :start-after: [START howto_operator_cloud_logging_update_sink_sink_native_obj]
    :end-before: [END howto_operator_cloud_logging_update_sink_sink_native_obj]
 
-**When updating a sink**, only include the fields you want to change in `sink_config`, and list those fields in the `update_mask["paths"]`.
+**When updating a sink**, only include the fields you want to change in ``sink_config``, and list those fields in the ``update_mask["paths"]``.
 
 List log sinks
 --------------
@@ -76,8 +93,8 @@ To delete a sink from a Google Cloud project:
 Protobuf Object Support
 -----------------------
 
-You can also provide the `sink_config` as a native `google.cloud.logging_v2.types.LogSink` Protobuf object,
-and the `update_mask` as a `google.protobuf.field_mask_pb2.FieldMask`.
+You can also provide the ``sink_config`` as a native ``google.cloud.logging_v2.types.LogSink`` Protobuf object,
+and the ``update_mask`` as a ``google.protobuf.field_mask_pb2.FieldMask``.
 
 **Imports:**
 
@@ -106,12 +123,11 @@ and the `update_mask` as a `google.protobuf.field_mask_pb2.FieldMask`.
    :start-after: [START howto_operator_cloud_logging_update_sink_protobuf_obj]
    :end-before: [END howto_operator_cloud_logging_update_sink_protobuf_obj]
 
-**Required fields in `sink_config` (Protobuf):**
+**Required fields in ``sink_config`` (Protobuf):**
 
 - ``name``: Required only when creating a sink.
 - ``destination``: The export destination (e.g., ``storage.googleapis.com/...``).
 
 Optional fields include ``description``, ``filter``, ``disabled``, and ``exclusions``.
 
-When using Protobuf-based update, the `update_mask` must include a `FieldMask` listing the fields to be updated.
-
+When using Protobuf-based update, the ``update_mask`` must include a ``FieldMask`` listing the fields to be updated.

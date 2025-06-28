@@ -36,6 +36,7 @@ from airflow.providers.google.common.hooks.base_google import PROVIDE_PROJECT_ID
 if TYPE_CHECKING:
     from google.protobuf.field_mask_pb2 import FieldMask
 
+
 class CloudLoggingHook(GoogleBaseHook):
     """
     Hook for Google Cloud Logging Log Sinks API.
@@ -63,10 +64,14 @@ class CloudLoggingHook(GoogleBaseHook):
         return f"projects/{project_id}"
 
     @GoogleBaseHook.fallback_to_default_project_id
-    def create_sink(self, sink: LogSink | dict,unique_writer_identity:bool=True, project_id: str = PROVIDE_PROJECT_ID) -> LogSink:
+    def create_sink(
+        self, sink: LogSink | dict, unique_writer_identity: bool = True, project_id: str = PROVIDE_PROJECT_ID
+    ) -> LogSink:
         if isinstance(sink, dict):
             sink = LogSink(**sink)
-        request = CreateSinkRequest(parent=self.get_parent(project_id), sink=sink, unique_writer_identity=unique_writer_identity)
+        request = CreateSinkRequest(
+            parent=self.get_parent(project_id), sink=sink, unique_writer_identity=unique_writer_identity
+        )
         return self.get_conn().create_sink(request=request)
 
     @GoogleBaseHook.fallback_to_default_project_id
@@ -75,8 +80,8 @@ class CloudLoggingHook(GoogleBaseHook):
         return self.get_conn().get_sink(request=request)
 
     @GoogleBaseHook.fallback_to_default_project_id
-    def list_sinks(self,page_size: int| None = None,project_id: str = PROVIDE_PROJECT_ID) -> list[LogSink]:
-        request = ListSinksRequest(parent=self.get_parent(project_id), page_size= page_size)
+    def list_sinks(self, page_size: int | None = None, project_id: str = PROVIDE_PROJECT_ID) -> list[LogSink]:
+        request = ListSinksRequest(parent=self.get_parent(project_id), page_size=page_size)
         return list(self.get_conn().list_sinks(request=request))
 
     @GoogleBaseHook.fallback_to_default_project_id
@@ -86,9 +91,19 @@ class CloudLoggingHook(GoogleBaseHook):
 
     @GoogleBaseHook.fallback_to_default_project_id
     def update_sink(
-        self, sink_name: str, sink: LogSink | dict, unique_writer_identity:bool, update_mask: FieldMask | dict, project_id: str = PROVIDE_PROJECT_ID
+        self,
+        sink_name: str,
+        sink: LogSink | dict,
+        unique_writer_identity: bool,
+        update_mask: FieldMask | dict,
+        project_id: str = PROVIDE_PROJECT_ID,
     ) -> LogSink:
         if isinstance(sink, dict):
             sink = LogSink(**sink)
-        request = UpdateSinkRequest(sink_name=f"projects/{project_id}/sinks/{sink_name}", sink=sink,unique_writer_identity=unique_writer_identity, update_mask= update_mask)
+        request = UpdateSinkRequest(
+            sink_name=f"projects/{project_id}/sinks/{sink_name}",
+            sink=sink,
+            unique_writer_identity=unique_writer_identity,
+            update_mask=update_mask,
+        )
         return self.get_conn().update_sink(request=request)

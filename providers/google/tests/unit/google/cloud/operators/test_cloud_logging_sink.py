@@ -21,20 +21,18 @@ This module contains various unit tests for GCP Cloud Logging Sink Operators
 
 from __future__ import annotations
 
-from unittest import mock
-import ast
-import pytest
-from datetime import datetime
 import re
+from datetime import datetime
+from unittest import mock
 
-from google.api_core.exceptions import AlreadyExists, GoogleAPICallError, NotFound
+import pytest
+from google.api_core.exceptions import AlreadyExists, GoogleAPICallError, InvalidArgument, NotFound
 from google.cloud.exceptions import GoogleCloudError
-from google.api_core.exceptions import InvalidArgument
-from google.cloud.logging_v2.types import BigQueryOptions, LogExclusion, LogSink
+from google.cloud.logging_v2.types import LogSink
 from google.protobuf.field_mask_pb2 import FieldMask
 
-from airflow.exceptions import AirflowException
 from airflow import DAG
+from airflow.exceptions import AirflowException
 from airflow.providers.google.cloud.operators.cloud_logging_sink import (
     CloudLoggingCreateSinkOperator,
     CloudLoggingDeleteSinkOperator,
@@ -48,54 +46,58 @@ SINK_NAME = "test-sink"
 PROJECT_ID = "test-project"
 UNIQUE_WRITER_IDENTITY = True
 
-create_test_cases =  [
+create_test_cases = [
     (
         {
-    "name": SINK_NAME,
-    "description": "Creating sink with pubsub",
-    "destination": "pubsub.googleapis.com/projects/test-project/topics/test-topic",
-    "filter": "severity=INFO",
-    "exclusions": [
-    {"name": "exclude-debug", "description": "Skip debug logs", "filter": "severity=DEBUG", "disabled": True},
-    {
-        "name": "exclude-cloudsql",
-        "description": "Skip CloudSQL logs",
-        "filter": 'resource.type="cloudsql_database"',
-        "disabled": False,
-    },
-
-],
-}), 
-(
-    {"name": SINK_NAME,
-    "description": "Creating bq destination",
-    "destination": "bigquery.googleapis.com/projects/test-project/datasets/your_dataset",
-    "filter": "severity=ERROR",
-    "exclusions": [
-    {
-        "name": "exclude-healthchecks",
-        "description": "Exclude App Engine health check logs",
-        "filter": 'resource.type="gae_app" AND protoPayload.status.code=200 AND protoPayload.resource="/_ah/health"',
-        "disabled": False,
-    },
-    {
-        "name": "exclude-load-balancer-logs",
-        "description": "Exclude HTTP 200 logs from load balancer",
-        "filter": 'resource.type="http_load_balancer" AND httpRequest.status=200',
-        "disabled": False,
-    },
-    {
-        "name": "exclude-gke-events",
-        "description": "Exclude normal Kubernetes events",
-        "filter": 'resource.type="k8s_event" AND jsonPayload.reason="Scheduled"',
-        "disabled": False,
-    },
-
-],
-"bigquery_options":{"use_partitioned_tables": True}
-    }
-
-)
+            "name": SINK_NAME,
+            "description": "Creating sink with pubsub",
+            "destination": "pubsub.googleapis.com/projects/test-project/topics/test-topic",
+            "filter": "severity=INFO",
+            "exclusions": [
+                {
+                    "name": "exclude-debug",
+                    "description": "Skip debug logs",
+                    "filter": "severity=DEBUG",
+                    "disabled": True,
+                },
+                {
+                    "name": "exclude-cloudsql",
+                    "description": "Skip CloudSQL logs",
+                    "filter": 'resource.type="cloudsql_database"',
+                    "disabled": False,
+                },
+            ],
+        }
+    ),
+    (
+        {
+            "name": SINK_NAME,
+            "description": "Creating bq destination",
+            "destination": "bigquery.googleapis.com/projects/test-project/datasets/your_dataset",
+            "filter": "severity=ERROR",
+            "exclusions": [
+                {
+                    "name": "exclude-healthchecks",
+                    "description": "Exclude App Engine health check logs",
+                    "filter": 'resource.type="gae_app" AND protoPayload.status.code=200 AND protoPayload.resource="/_ah/health"',
+                    "disabled": False,
+                },
+                {
+                    "name": "exclude-load-balancer-logs",
+                    "description": "Exclude HTTP 200 logs from load balancer",
+                    "filter": 'resource.type="http_load_balancer" AND httpRequest.status=200',
+                    "disabled": False,
+                },
+                {
+                    "name": "exclude-gke-events",
+                    "description": "Exclude normal Kubernetes events",
+                    "filter": 'resource.type="k8s_event" AND jsonPayload.reason="Scheduled"',
+                    "disabled": False,
+                },
+            ],
+            "bigquery_options": {"use_partitioned_tables": True},
+        }
+    ),
 ]
 create_test_ids = ["create_pubsub", "create_bq"]
 
@@ -104,7 +106,7 @@ update_test_cases = [
         {
             "name": "sink-1",
             "destination": "storage.googleapis.com/my-bucket-1",
-            "filter": 'severity>=ERROR',
+            "filter": "severity>=ERROR",
             "description": "Storage sink updated",
             "disabled": False,
         },
@@ -125,7 +127,8 @@ update_test_cases = [
 update_test_ids = ["update_storage_sink", "update_pubsub_sink"]
 
 
-sink = LogSink(name = SINK_NAME, destination = "pubsub.googleapis.com/projects/my-project/topics/my-topic")
+sink = LogSink(name=SINK_NAME, destination="pubsub.googleapis.com/projects/my-project/topics/my-topic")
+
 
 def _assert_common_template_fields(template_fields):
     assert "project_id" in template_fields
@@ -135,11 +138,7 @@ def _assert_common_template_fields(template_fields):
 
 class TestCloudLoggingCreateSinkOperator:
     def test_template_fields(self):
-        operator = CloudLoggingCreateSinkOperator(
-            task_id=TASK_ID,
-            project_id=PROJECT_ID,
-            sink_config = sink
-        )
+        operator = CloudLoggingCreateSinkOperator(task_id=TASK_ID, project_id=PROJECT_ID, sink_config=sink)
         assert "sink_config" in operator.template_fields
         assert "unique_writer_identity" in operator.template_fields
         _assert_common_template_fields(operator.template_fields)
@@ -148,14 +147,14 @@ class TestCloudLoggingCreateSinkOperator:
         with pytest.raises(AirflowException) as excinfo:
             CloudLoggingCreateSinkOperator(
                 task_id=TASK_ID,
-                sink_config = None,
+                sink_config=None,
                 project_id=None,
             ).execute(context={})
         assert "Required parameters are missing: ['project_id', 'sink_config']." in str(excinfo.value)
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    @pytest.mark.parametrize("sink_config", create_test_cases, ids = create_test_ids)
-    def test_create_with_pubsub_sink(self, hook_mock,sink_config):
+    @pytest.mark.parametrize("sink_config", create_test_cases, ids=create_test_ids)
+    def test_create_with_pubsub_sink(self, hook_mock, sink_config):
         hook_instance = hook_mock.return_value
         # expected_op =  LogSink(**sink_config)
         hook_instance.create_sink.return_value = LogSink(**sink_config)
@@ -164,20 +163,17 @@ class TestCloudLoggingCreateSinkOperator:
             task_id=TASK_ID,
             sink_config=sink_config,
             project_id=PROJECT_ID,
-            unique_writer_identity= UNIQUE_WRITER_IDENTITY
+            unique_writer_identity=UNIQUE_WRITER_IDENTITY,
         )
 
         operator.execute(context=mock.MagicMock())
 
         hook_instance.create_sink.assert_called_once_with(
-            project_id=PROJECT_ID,
-            sink=sink_config,
-            unique_writer_identity= UNIQUE_WRITER_IDENTITY
-
+            project_id=PROJECT_ID, sink=sink_config, unique_writer_identity=UNIQUE_WRITER_IDENTITY
         )
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    @pytest.mark.parametrize("sink_config", create_test_cases, ids = create_test_ids)
+    @pytest.mark.parametrize("sink_config", create_test_cases, ids=create_test_ids)
     def test_create_sink_already_exists(self, hook_mock, sink_config):
         hook_instance = hook_mock.return_value
         hook_instance.create_sink.side_effect = AlreadyExists("Sink already exists")
@@ -187,29 +183,26 @@ class TestCloudLoggingCreateSinkOperator:
             task_id=TASK_ID,
             sink_config=sink_config,
             project_id=PROJECT_ID,
-
         )
 
         result = operator.execute(context=mock.MagicMock())
 
         hook_instance.create_sink.assert_called_once_with(
-            project_id=PROJECT_ID,
-            sink=sink_config,
-            unique_writer_identity= False
+            project_id=PROJECT_ID, sink=sink_config, unique_writer_identity=False
         )
         assert result["name"] == sink_config["name"]
         assert result["destination"] == sink_config["destination"]
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    @pytest.mark.parametrize("sink_config", create_test_cases, ids = create_test_ids)
+    @pytest.mark.parametrize("sink_config", create_test_cases, ids=create_test_ids)
     def test_create_sink_raises_error(self, hook_mock, sink_config):
         hook_instance = hook_mock.return_value
         hook_instance.create_sink.side_effect = GoogleCloudError("Failed to create sink")
         hook_instance.get_sink.return_value = sink_config
-        
+
         operator = CloudLoggingCreateSinkOperator(
             task_id=TASK_ID,
-            sink_config = sink_config,
+            sink_config=sink_config,
             project_id=PROJECT_ID,
         )
 
@@ -219,7 +212,13 @@ class TestCloudLoggingCreateSinkOperator:
         hook_instance.create_sink.assert_called_once()
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    @pytest.mark.parametrize("impersonation_chain", [["user1@project.iam.gserviceaccount.com", "user2@project.iam.gserviceaccount.com"], "user2@project.iam.gserviceaccount.com"])
+    @pytest.mark.parametrize(
+        "impersonation_chain",
+        [
+            ["user1@project.iam.gserviceaccount.com", "user2@project.iam.gserviceaccount.com"],
+            "user2@project.iam.gserviceaccount.com",
+        ],
+    )
     def test_create_with_impersonation_chain(self, hook_mock, impersonation_chain):
         hook_instance = hook_mock.return_value
         hook_instance.create_sink.return_value = sink
@@ -239,7 +238,6 @@ class TestCloudLoggingCreateSinkOperator:
         )
 
     def test_missing_rendered_field_raises(self):
-
         with DAG(
             dag_id="test_render_native",
             start_date=datetime(1997, 9, 25),
@@ -247,9 +245,9 @@ class TestCloudLoggingCreateSinkOperator:
         ) as dag:
             operator = CloudLoggingCreateSinkOperator(
                 task_id=TASK_ID,
-                sink_config = "{{ var.value.sink_config }}",
+                sink_config="{{ var.value.sink_config }}",
                 project_id="{{ var.value.project_id }}",
-                dag=dag
+                dag=dag,
             )
 
         context = {
@@ -260,12 +258,14 @@ class TestCloudLoggingCreateSinkOperator:
 
         with pytest.raises(
             AirflowException,
-            match= re.escape("Required parameters are missing: ['sink_config']. These must be passed as keyword parameters.")
+            match=re.escape(
+                "Required parameters are missing: ['sink_config']. These must be passed as keyword parameters."
+            ),
         ):
             operator.execute(context)
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    @pytest.mark.parametrize("sink_config", create_test_cases, ids = create_test_ids)
+    @pytest.mark.parametrize("sink_config", create_test_cases, ids=create_test_ids)
     def test_template_rendering(self, hook_mock, sink_config):
         with DAG(
             dag_id="test_render_native",
@@ -274,9 +274,9 @@ class TestCloudLoggingCreateSinkOperator:
         ) as dag:
             operator = CloudLoggingCreateSinkOperator(
                 task_id=TASK_ID,
-                sink_config = "{{ var.value.sink_config }}",
+                sink_config="{{ var.value.sink_config }}",
                 project_id="{{ var.value.project_id }}",
-                dag=dag
+                dag=dag,
             )
 
         context = {
@@ -299,9 +299,9 @@ class TestCloudLoggingCreateSinkOperator:
             match="400 Required parameter 'sink.name' is empty",
         ):
             sink.name = None
-            CloudLoggingCreateSinkOperator(
-                task_id=TASK_ID, sink_config = sink, project_id=PROJECT_ID
-            ).execute(context={})
+            CloudLoggingCreateSinkOperator(task_id=TASK_ID, sink_config=sink, project_id=PROJECT_ID).execute(
+                context={}
+            )
 
 
 class TestCloudLoggingDeleteSinkOperator:
@@ -324,7 +324,7 @@ class TestCloudLoggingDeleteSinkOperator:
         assert "Required parameters are missing" in str(excinfo.value)
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    @pytest.mark.parametrize("sink_config", create_test_cases, ids = create_test_ids)
+    @pytest.mark.parametrize("sink_config", create_test_cases, ids=create_test_ids)
     def test_delete_sink_success(self, hook_mock, sink_config):
         hook_instance = hook_mock.return_value
         log_sink = LogSink(**sink_config)
@@ -344,17 +344,16 @@ class TestCloudLoggingDeleteSinkOperator:
 
         assert result == LogSink.to_dict(log_sink)
 
-
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    @pytest.mark.parametrize("sink_config", create_test_cases, ids = create_test_ids)
+    @pytest.mark.parametrize("sink_config", create_test_cases, ids=create_test_ids)
     def test_delete_sink_raises_error(self, hook_mock, sink_config):
         hook_instance = hook_mock.return_value
         hook_instance.delete_sink.side_effect = GoogleCloudError("Internal Error")
         hook_instance.get_sink.return_value = LogSink(**sink_config)
-        
+
         operator = CloudLoggingDeleteSinkOperator(
             task_id=TASK_ID,
-            sink_name = SINK_NAME,
+            sink_name=SINK_NAME,
             project_id=PROJECT_ID,
         )
 
@@ -373,9 +372,9 @@ class TestCloudLoggingDeleteSinkOperator:
         ) as dag:
             operator = CloudLoggingDeleteSinkOperator(
                 task_id=TASK_ID,
-                sink_name = "{{ var.value.sink_name }}",
+                sink_name="{{ var.value.sink_name }}",
                 project_id="{{ var.value.project_id }}",
-                dag=dag
+                dag=dag,
             )
 
         context = {
@@ -385,13 +384,14 @@ class TestCloudLoggingDeleteSinkOperator:
         operator.render_template_fields(context)
         with pytest.raises(
             AirflowException,
-            match= re.escape("Required parameters are missing: ['sink_name']. These must be passed as keyword parameters.")
+            match=re.escape(
+                "Required parameters are missing: ['sink_name']. These must be passed as keyword parameters."
+            ),
         ):
             operator.execute(context)
 
-
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    @pytest.mark.parametrize("sink_config", create_test_cases, ids = create_test_ids)
+    @pytest.mark.parametrize("sink_config", create_test_cases, ids=create_test_ids)
     def test_template_rendering(self, hook_mock, sink_config):
         with DAG(
             dag_id="test_render_native",
@@ -400,9 +400,9 @@ class TestCloudLoggingDeleteSinkOperator:
         ) as dag:
             operator = CloudLoggingDeleteSinkOperator(
                 task_id=TASK_ID,
-                sink_name = "{{ var.value.sink_name }}",
+                sink_name="{{ var.value.sink_name }}",
                 project_id="{{ var.value.project_id }}",
-                dag=dag
+                dag=dag,
             )
 
         context = {
@@ -461,25 +461,24 @@ class TestCloudLoggingListSinksOperator:
             page_size=50,
         )
 
-        assert result ==  [LogSink.to_dict(sink) for sink in [sink, sink]]
+        assert result == [LogSink.to_dict(sink) for sink in [sink, sink]]
 
     def test_negative_page_size_raises_exception(self):
         with pytest.raises(
             AirflowException, match="The page_size for the list sinks request must be greater than zero"
         ):
-            CloudLoggingListSinksOperator(task_id="fail-task", project_id=PROJECT_ID, page_size=-1).execute(context={})
+            CloudLoggingListSinksOperator(task_id="fail-task", project_id=PROJECT_ID, page_size=-1).execute(
+                context={}
+            )
 
     def test_missing_rendered_field_raises(self):
-
         with DAG(
             dag_id="test_render_native",
             start_date=datetime(1997, 9, 25),
             render_template_as_native_obj=True,
         ) as dag:
             operator = CloudLoggingListSinksOperator(
-                task_id=TASK_ID,
-                project_id="{{ var.value.project_id }}",
-                dag=dag
+                task_id=TASK_ID, project_id="{{ var.value.project_id }}", dag=dag
             )
 
         context = {
@@ -490,7 +489,9 @@ class TestCloudLoggingListSinksOperator:
 
         with pytest.raises(
             AirflowException,
-            match= re.escape("Required parameters are missing: ['project_id']. These must be passed as keyword parameters.")
+            match=re.escape(
+                "Required parameters are missing: ['project_id']. These must be passed as keyword parameters."
+            ),
         ):
             operator.execute(context)
 
@@ -502,9 +503,7 @@ class TestCloudLoggingListSinksOperator:
             render_template_as_native_obj=True,
         ) as dag:
             operator = CloudLoggingListSinksOperator(
-                task_id=TASK_ID,
-                project_id="{{ var.value.project_id }}",
-                dag=dag
+                task_id=TASK_ID, project_id="{{ var.value.project_id }}", dag=dag
             )
 
         context = {
@@ -522,15 +521,14 @@ class TestCloudLoggingListSinksOperator:
         assert operator.project_id == PROJECT_ID
 
 
-
 class TestCloudLoggingUpdateSinksOperator:
     @pytest.mark.parametrize("sink_config, update_mask", update_test_cases, ids=update_test_ids)
     def test_template_fields(self, sink_config, update_mask):
         operator = CloudLoggingUpdateSinkOperator(
             task_id=TASK_ID,
-            sink_name = SINK_NAME,
-            sink_config=sink_config ,
-            update_mask = update_mask,
+            sink_name=SINK_NAME,
+            sink_config=sink_config,
+            update_mask=update_mask,
             project_id=PROJECT_ID,
         )
         assert "sink_config" in operator.template_fields
@@ -552,7 +550,7 @@ class TestCloudLoggingUpdateSinksOperator:
     def test_update_sink_success(self, hook_mock, sink_config, update_mask):
         hook_instance = hook_mock.return_value
 
-        hook_instance.get_sink.return_value =sink
+        hook_instance.get_sink.return_value = sink
         sink_ = LogSink(**sink_config)
         hook_instance.update_sink.return_value = sink_
 
@@ -560,22 +558,19 @@ class TestCloudLoggingUpdateSinksOperator:
             task_id=TASK_ID,
             sink_name=SINK_NAME,
             project_id=PROJECT_ID,
-            sink_config = sink_config,
-            update_mask= update_mask
+            sink_config=sink_config,
+            update_mask=update_mask,
         )
 
         result = operator.execute(context=mock.MagicMock())
 
-        hook_instance.get_sink.assert_called_once_with(
-            sink_name = SINK_NAME,
-            project_id = PROJECT_ID
-        )
+        hook_instance.get_sink.assert_called_once_with(sink_name=SINK_NAME, project_id=PROJECT_ID)
         hook_instance.update_sink.assert_called_once()
         assert result == LogSink.to_dict(sink_)
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
     @pytest.mark.parametrize("sink_config, update_mask", update_test_cases, ids=update_test_ids)
-    def test_update_sink_raises_not_found(self,hook_mock,sink_config,update_mask):
+    def test_update_sink_raises_not_found(self, hook_mock, sink_config, update_mask):
         hook_instance = hook_mock.return_value
 
         hook_instance.get_sink.side_effect = NotFound("not found")
@@ -583,8 +578,8 @@ class TestCloudLoggingUpdateSinksOperator:
         operator = CloudLoggingUpdateSinkOperator(
             task_id=TASK_ID,
             sink_name=SINK_NAME,
-            sink_config = sink_config,
-            update_mask = update_mask,
+            sink_config=sink_config,
+            update_mask=update_mask,
             project_id=PROJECT_ID,
         )
 
@@ -596,15 +591,15 @@ class TestCloudLoggingUpdateSinksOperator:
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
     @pytest.mark.parametrize("sink_config, update_mask", update_test_cases, ids=update_test_ids)
-    def test_update_sink_raises_generic_error(self, hook_mock,sink_config, update_mask):
+    def test_update_sink_raises_generic_error(self, hook_mock, sink_config, update_mask):
         hook_instance = hook_mock.return_value
         hook_instance.get_sink.side_effect = GoogleAPICallError("something went wrong")
 
         operator = CloudLoggingUpdateSinkOperator(
             task_id=TASK_ID,
             sink_name=SINK_NAME,
-            sink_config= sink_config,
-            update_mask = update_mask,
+            sink_config=sink_config,
+            update_mask=update_mask,
             project_id=PROJECT_ID,
         )
 
@@ -613,9 +608,14 @@ class TestCloudLoggingUpdateSinksOperator:
         hook_instance.get_sink.assert_called_once()
         hook_instance.update_sink.assert_not_called()
 
-
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
-    @pytest.mark.parametrize("impersonation_chain", [["user1@project.iam.gserviceaccount.com", "user2@project.iam.gserviceaccount.com"], "user2@project.iam.gserviceaccount.com"])
+    @pytest.mark.parametrize(
+        "impersonation_chain",
+        [
+            ["user1@project.iam.gserviceaccount.com", "user2@project.iam.gserviceaccount.com"],
+            "user2@project.iam.gserviceaccount.com",
+        ],
+    )
     def test_create_with_impersonation_chain(self, hook_mock, impersonation_chain):
         hook_instance = hook_mock.return_value
         hook_instance.get_sink.return_value = sink
@@ -625,7 +625,7 @@ class TestCloudLoggingUpdateSinksOperator:
             task_id=TASK_ID,
             sink_config=update_test_cases[0][0],
             update_mask=update_test_cases[0][1],
-            sink_name = SINK_NAME,
+            sink_name=SINK_NAME,
             impersonation_chain=impersonation_chain,
             project_id=PROJECT_ID,
         )
@@ -638,7 +638,6 @@ class TestCloudLoggingUpdateSinksOperator:
         )
 
     def test_missing_rendered_field_raises(self):
-
         with DAG(
             dag_id="test_render_native",
             start_date=datetime(1997, 9, 25),
@@ -646,22 +645,31 @@ class TestCloudLoggingUpdateSinksOperator:
         ) as dag:
             operator = CloudLoggingUpdateSinkOperator(
                 task_id=TASK_ID,
-                sink_name = "{{ var.value.sink_name }}",
-                sink_config = "{{ var.value.sink_config }}",
-                update_mask = "{{ var.value.update_mask }}",
+                sink_name="{{ var.value.sink_name }}",
+                sink_config="{{ var.value.sink_config }}",
+                update_mask="{{ var.value.update_mask }}",
                 project_id="{{ var.value.project_id }}",
-                dag=dag
+                dag=dag,
             )
 
         context = {
-            "var": {"value": {"project_id": PROJECT_ID,"sink_name": None, "sink_config": None, "update_mask": None}},
+            "var": {
+                "value": {
+                    "project_id": PROJECT_ID,
+                    "sink_name": None,
+                    "sink_config": None,
+                    "update_mask": None,
+                }
+            },
         }
 
         operator.render_template_fields(context)
 
         with pytest.raises(
             AirflowException,
-            match= re.escape("Required parameters are missing: ['sink_name', 'sink_config', 'update_mask']. These must be passed as keyword parameters.")
+            match=re.escape(
+                "Required parameters are missing: ['sink_name', 'sink_config', 'update_mask']. These must be passed as keyword parameters."
+            ),
         ):
             operator.execute(context)
 
@@ -679,7 +687,7 @@ class TestCloudLoggingUpdateSinksOperator:
                 update_mask="{{ var.value.update_mask }}",
                 sink_config="{{ var.value.sink_config }}",
                 project_id="{{ var.value.project_id }}",
-                unique_writer_identity = "{{ var.value.unique_writer_identity }}",
+                unique_writer_identity="{{ var.value.unique_writer_identity }}",
                 dag=dag,
             )
 
@@ -690,13 +698,13 @@ class TestCloudLoggingUpdateSinksOperator:
                     "sink_config": sink_config,
                     "sink_name": SINK_NAME,
                     "update_mask": update_mask,
-                    "unique_writer_identity": UNIQUE_WRITER_IDENTITY
+                    "unique_writer_identity": UNIQUE_WRITER_IDENTITY,
                 }
             }
         }
 
         hook_instance = hook_mock.return_value
-        hook_instance.get_sink.return_value = LogSink(name = SINK_NAME)
+        hook_instance.get_sink.return_value = LogSink(name=SINK_NAME)
         hook_instance.update_sink.return_value = LogSink(**sink_config)
 
         operator.render_template_fields(context)
@@ -712,18 +720,18 @@ class TestCloudLoggingUpdateSinksOperator:
         assert operator.update_mask == update_mask
 
         hook_instance.update_sink.assert_called_once_with(
-            project_id = PROJECT_ID,
+            project_id=PROJECT_ID,
             sink_name=SINK_NAME,
             sink=sink_config,
             update_mask=update_mask,
-            unique_writer_identity= UNIQUE_WRITER_IDENTITY
+            unique_writer_identity=UNIQUE_WRITER_IDENTITY,
         )
 
     @mock.patch(CLOUD_LOGGING_HOOK_PATH)
     @pytest.mark.parametrize("sink_config, update_mask", update_test_cases, ids=update_test_ids)
     def test_template_rendering_with_proto(self, hook_mock, sink_config, update_mask):
         sink_obj = LogSink(**sink_config)
-        mask_obj = FieldMask(paths = update_mask["paths"])
+        mask_obj = FieldMask(paths=update_mask["paths"])
         with DAG(
             dag_id="test_render_native_proto",
             start_date=datetime(2024, 1, 1),

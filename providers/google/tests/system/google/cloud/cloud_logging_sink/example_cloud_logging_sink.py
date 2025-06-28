@@ -50,7 +50,7 @@ with DAG(
             "name": SINK_NAME,
             "destination": "storage.googleapis.com/test-log-sink-af",
             "description": "Create with full sink_config",
-            "filter": 'severity>=INFO',
+            "filter": "severity>=INFO",
             "disabled": False,
             "exclusions": [
                 {
@@ -103,12 +103,7 @@ with DAG(
     )
     # [END howto_operator_cloud_logging_delete_sink]
 
-    (
-        create_sink
-        >> update_sink_config_1
-        >> list_sinks_after
-        >> delete_sink
-    )
+    (create_sink >> update_sink_config_1 >> list_sinks_after >> delete_sink)
 
     from tests_common.test_utils.watcher import watcher
 
