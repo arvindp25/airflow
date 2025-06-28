@@ -72,8 +72,8 @@ with DAG(
     # [END howto_operator_cloud_logging_create_sink_native_obj]
 
     # [START howto_operator_cloud_logging_update_sink_sink_native_obj]
-    update_sink_config_1 = CloudLoggingUpdateSinkOperator(
-        task_id="update_sink_config_1",
+    update_sink_config = CloudLoggingUpdateSinkOperator(
+        task_id="update_sink_config",
         sink_name=SINK_NAME,
         project_id=PROJECT_ID,
         sink_config={
@@ -82,6 +82,7 @@ with DAG(
             "disabled": False,
         },
         update_mask={"paths": ["description", "filter", "disabled"]},
+        unique_writer_identity = True,
         gcp_conn_id=CONN_ID,
     )
     # [END howto_operator_cloud_logging_update_sink_sink_native_obj]
@@ -103,7 +104,7 @@ with DAG(
     )
     # [END howto_operator_cloud_logging_delete_sink]
 
-    (create_sink >> update_sink_config_1 >> list_sinks_after >> delete_sink)
+    (create_sink >> update_sink_config >> list_sinks_after >> delete_sink)
 
     from tests_common.test_utils.watcher import watcher
 

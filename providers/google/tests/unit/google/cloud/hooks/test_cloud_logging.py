@@ -58,7 +58,6 @@ sink_config = {
 }
 
 
-# @pytest.mark.db_test
 class TestCloudLoggingHook:
     @pytest.fixture
     def cloud_logging_hook(self):
@@ -137,8 +136,6 @@ class TestCloudLoggingHook:
     )
     @mock.patch("airflow.providers.google.cloud.hooks.cloud_logging.ConfigServiceV2Client")
     def test_update_sink_success(self, mock_config_client, cloud_logging_hook):
-        # updated_destination = f"bigquery.googleapis.com/projects/{PROJECT_ID}/datasets/your_dataset"
-        # updated_bigquery_options = {"use_partitioned_tables": True}
         sink_config = {
             "destination": f"bigquery.googleapis.com/projects/{PROJECT_ID}/datasets/your_dataset",
             "bigquery_options": {"use_partitioned_tables": True},
@@ -199,8 +196,8 @@ class TestCloudLoggingHook:
     )
     @mock.patch("airflow.providers.google.cloud.hooks.cloud_logging.ConfigServiceV2Client")
     def test_update_sink_failure(self, mock_config_client, cloud_logging_hook):
-        # Prepare a valid LogSink
         updated_sink = LogSink(name=SINK_NAME, destination="storage.googleapis.com/new-bucket")
+        updated_mask = {"paths":["name","destination"]}
 
         mock_config_client.return_value.update_sink.side_effect = Exception("Permission denied")
 
@@ -210,6 +207,7 @@ class TestCloudLoggingHook:
             cloud_logging_hook.update_sink(
                 sink_name=SINK_NAME,
                 sink=updated_sink,
+                update_mask=updated_mask,
                 unique_writer_identity=UNQUE_WRITER_IDENTITIY,
                 project_id=PROJECT_ID,
             )

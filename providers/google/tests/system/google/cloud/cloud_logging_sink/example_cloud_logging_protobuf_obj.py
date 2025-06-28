@@ -20,10 +20,11 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
+# [START howto_operator_import_protobuf_obj]
 from google.cloud.logging_v2.types import LogSink
 from google.protobuf.field_mask_pb2 import FieldMask
+# [END howto_operator_import_protobuf_obj]
 
-# [START howto_operator_import_protobuf_obj]
 from airflow import DAG
 from airflow.providers.google.cloud.operators.cloud_logging_sink import (
     CloudLoggingCreateSinkOperator,
@@ -31,8 +32,6 @@ from airflow.providers.google.cloud.operators.cloud_logging_sink import (
     CloudLoggingListSinksOperator,
     CloudLoggingUpdateSinkOperator,
 )
-
-# [END howto_operator_import_protobuf_obj]
 
 PROJECT_ID = os.environ.get("SYSTEM_TESTS_GCP_PROJECT", "default")
 ENV_ID = os.environ.get("SYSTEM_TESTS_ENV_ID", "default")
@@ -53,6 +52,7 @@ with DAG(
     create_sink = CloudLoggingCreateSinkOperator(
         task_id="create_sink",
         project_id=PROJECT_ID,
+        unique_writer_identity = False,
         sink_config=LogSink(
             **{
                 "name": SINK_NAME,
@@ -81,8 +81,8 @@ with DAG(
     # [END howto_operator_cloud_logging_create_sink_protobuf_obj]
 
     # [START howto_operator_cloud_logging_update_sink_protobuf_obj]
-    update_sink_config_1 = CloudLoggingUpdateSinkOperator(
-        task_id="update_sink_config_1",
+    update_sink_config = CloudLoggingUpdateSinkOperator(
+        task_id="update_sink_config",
         sink_name=SINK_NAME,
         project_id=PROJECT_ID,
         sink_config=LogSink(
@@ -92,6 +92,7 @@ with DAG(
                 "disabled": False,
             }
         ),
+        unique_writer_identity = True,
         update_mask=FieldMask(paths=["description", "filter", "disabled"]),
         gcp_conn_id=CONN_ID,
     )
@@ -108,7 +109,7 @@ with DAG(
         gcp_conn_id=CONN_ID,
     )
 
-    (create_sink >> update_sink_config_1 >> list_sinks_after >> delete_sink)
+    (create_sink >> update_sink_config >> list_sinks_after >> delete_sink)
 
     from tests_common.test_utils.watcher import watcher
 

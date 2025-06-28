@@ -30,8 +30,9 @@ from airflow.providers.google.cloud.hooks.cloud_logging import CloudLoggingHook
 from airflow.providers.google.cloud.operators.cloud_base import GoogleCloudBaseOperator
 
 if TYPE_CHECKING:
-    from airflow.utils.context import Context
     from google.protobuf.field_mask_pb2 import FieldMask
+
+    from airflow.utils.context import Context
 
 
 def _validate_inputs(obj, required_fields: list[str]) -> None:
