@@ -230,7 +230,7 @@ class TestCloudLoggingCreateSinkOperator:
             project_id=PROJECT_ID,
         )
 
-        result = operator.execute(context=mock.MagicMock())
+        operator.execute(context=mock.MagicMock())
 
         hook_mock.assert_called_once_with(
             gcp_conn_id="google_cloud_default",
@@ -288,17 +288,17 @@ class TestCloudLoggingCreateSinkOperator:
 
         operator.render_template_fields(context)
 
-        result = operator.execute(context)
+        operator.execute(context)
 
         assert isinstance(operator.sink_config, dict)
         assert operator.sink_config == sink_config
 
     def test_create_with_empty_sink_name_raises(self):
+        sink.name = None
         with pytest.raises(
             InvalidArgument,
             match="400 Required parameter 'sink.name' is empty",
         ):
-            sink.name = None
             CloudLoggingCreateSinkOperator(task_id=TASK_ID, sink_config=sink, project_id=PROJECT_ID).execute(
                 context={}
             )
@@ -515,7 +515,7 @@ class TestCloudLoggingListSinksOperator:
 
         operator.render_template_fields(context)
 
-        result = operator.execute(context)
+        operator.execute(context)
 
         assert isinstance(operator.project_id, str)
         assert operator.project_id == PROJECT_ID
@@ -630,7 +630,7 @@ class TestCloudLoggingUpdateSinksOperator:
             project_id=PROJECT_ID,
         )
 
-        result = operator.execute(context=mock.MagicMock())
+        operator.execute(context=mock.MagicMock())
 
         hook_mock.assert_called_once_with(
             gcp_conn_id="google_cloud_default",

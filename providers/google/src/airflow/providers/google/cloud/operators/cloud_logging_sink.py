@@ -31,6 +31,7 @@ from airflow.providers.google.cloud.operators.cloud_base import GoogleCloudBaseO
 
 if TYPE_CHECKING:
     from airflow.utils.context import Context
+    from google.protobuf.field_mask_pb2 import FieldMask
 
 
 def _validate_inputs(obj, required_fields: list[str]) -> None:
@@ -235,7 +236,7 @@ class CloudLoggingUpdateSinkOperator(GoogleCloudBaseOperator):
         self,
         project_id: str,
         sink_name: str,
-        sink_config: dict | logging_v2.types.LogSink,
+        sink_config: dict | LogSink,
         update_mask: FieldMask | dict,
         unique_writer_identity: bool = False,
         gcp_conn_id: str = "google_cloud_default",
