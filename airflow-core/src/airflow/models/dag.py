@@ -297,6 +297,14 @@ def _convert_max_consecutive_failed_dag_runs(val: int) -> int:
         )
     return val
 
+def _validate_on_previous_failure(instance, attribute, value):
+    allowed = {None, "skip", "failed"}
+    if value not in allowed:
+        raise ValueError(
+            f"Invalid value {value!r} for {attribute.name}. "
+            f"Allowed values: {allowed}"
+        )
+
 
 @functools.total_ordering
 @attrs.define(hash=False, repr=False, eq=False, slots=False)
@@ -422,6 +430,7 @@ class DAG(TaskSDKDag, LoggingMixin):
         **Warning**: A fail fast dag can only have tasks with the default trigger rule ("all_success").
         An exception will be thrown if any task in a fail fast dag has a non default trigger rule.
     :param dag_display_name: The display name of the DAG which appears on the UI.
+    :param on_previous_failure: If last dag state is marked as failed then what to do.
     """
 
     partial: bool = False
@@ -437,6 +446,8 @@ class DAG(TaskSDKDag, LoggingMixin):
         converter=_convert_max_consecutive_failed_dag_runs,
         validator=attrs.validators.instance_of(int),
     )
+    on_previous_failure: str | None = attrs.field(default=None, validator = _validate_on_previous_failure)
+
 
     @property
     def safe_dag_id(self):
@@ -1822,6 +1833,70 @@ class DAG(TaskSDKDag, LoggingMixin):
         new_dag.edge_info = dag.edge_info.copy()
 
         return new_dag
+    
+    @provide_session
+    def get_last_non_skipped_dagrun(self, execution_date, session: Session = None):
+        """
+        Get the last DAG run that was not skipped (either SUCCESS or FAILED)
+        Skips over any SKIPPED runs to find the actual last completed run
+        
+        :param execution_date: Current execution date
+        :param session: Database session
+        :return: Last non-skipped DagRun or None
+        """
+        last_dagrun = (
+            session.query(DagRun)
+            .filter(
+                DagRun.dag_id == self.dag_id,
+                DagRun.execution_date < execution_date,
+                DagRun.state.in_([DagRunState.SUCCESS, DagRunState.FAILED])  # Skip SKIPPED runs
+            )
+            .order_by(DagRun.execution_date.desc())
+            .first()
+        )
+        
+        return last_dagrun
+
+    @provide_session
+    def handle_previous_failure_check(self, execution_date, session: Session = None):
+        """
+        Check previous failure and take action based on on_previous_failure mode
+        
+        :param execution_date: Current execution date
+        :param session: Database session
+        :return: Action taken ('continue', 'skip', 'fail')
+        :raises: AirflowSkipException if mode is 'skip' and previous failed
+        :raises: AirflowFailException if mode is 'fail' and previous failed
+        """
+        # If no on_previous_failure set, continue normally
+        if self.on_previous_failure is None:
+            return 'continue'
+            
+        # Get last non-skipped DAG run
+        last_dagrun = self.get_last_non_skipped_dagrun(execution_date, session)
+        
+        # If no previous runs or previous run succeeded, continue normally
+        if not last_dagrun or last_dagrun.state == DagRunState.SUCCESS:
+            logger.info(f"DAG {self.dag_id}: No previous failure detected. Continuing normally.")
+            return 'continue'
+            
+        # Previous run failed - take action based on mode
+        if last_dagrun.state == DagRunState.FAILED:
+            logger.warning(
+                f"DAG {self.dag_id}: Previous run {last_dagrun.run_id} "
+                f"(execution_date: {last_dagrun.execution_date}) failed. "
+                f"Action: {self.on_previous_failure}"
+            )
+            
+            if self.on_previous_failure == "skip":
+                logger.info(f"Skipping current DAG run for {self.dag_id} due to previous failure")
+                return 'skip'
+                
+            elif self.on_previous_failure == "fail":
+                logger.info(f"Failing current DAG run for {self.dag_id} due to previous failure")
+                return 'fail'
+                
+        return 'continue'
 
 
 class DagTag(Base):
